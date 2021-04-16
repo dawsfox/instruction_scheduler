@@ -119,7 +119,24 @@ int is_number(char *src) {
 	return 0;
 }
 
-int dependency_check(char *first, char *second) {
+int dependency_check(char *var, char *statement, int write) {
+	// write is 1 when the given var is a destination, 0 otherwise
+	// need NULL protection, otherwise probably seg fault
+	// ***** need to check if statement[_] is even a var using is_number
+	int is_var = (statement[0] != NULL) && (!is_number(statement[0]));
+	if (is_var && (strcmp(var, statement[0]) == 0)) {
+		return 1;
+	}
+	is_var = (statement[1] != NULL) && (!is_number(statement[1]));
+	if (write && is_var && (strcmp(var, statement[1]) == 0)) {
+		return 1;
+	}
+	is_var = (statement[2] != NULL) && (!is_number(statement[2]));
+	if (write && is_var && (strcmp(var, statement[2]) == 0)) {
+		return 1;
+	}
+	return 0;
+}
 
 /*
 int node_weight(ddg_node_t *node) {
@@ -221,7 +238,10 @@ int main(int argc, char *argv[]) {
 		}
 		else {
 			for (int k=j; k<i; k++) {
-				int dep;
+				// add NULL and variable checking for dest_curr, src1_curr, src2_curr
+				// or do it in dependency check function
+				if (dependency_check(dest_curr, statement_list[k], 1) || 
+				    dependency_check(
 			}
 		}
 	}
