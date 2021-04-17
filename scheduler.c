@@ -10,16 +10,29 @@ typedef struct ddg_node_s {
 
 typedef struct edge_s {
 	int weight;
-	ddg_node_t *src;
-	ddg_node_t *dest;
+	int src;
+	int dest;
 } edge_t;
 
 typedef struct ddg_s {
-	ddg_node_t *start;
-	ddg_node_t *end;
-	ddg_node_t *node_list;
+	int start;
+	int end;
+	int num_edges;
+	ddg_node_t node_list[32];
 	edge_t edge_list[64];
 } ddg_t; 
+
+void print_ddg(ddg_t curr) {
+	printf("ddg from %d to %d\n", curr.start, curr.end);
+	printf("has nodes:\n");
+	for (int i=0; i<curr.end-curr.start+1; i++) {
+		printf("%d, ", curr.node_list[i].statement);
+	}
+	printf("\nwith edges:\n");
+	for (int i=0; i < curr.num_edges; i++) {
+		printf("%d->%d, ", curr.edge_list[i].src, curr.edge_list[i].dest);
+	}
+}
 
 int retrieve_dest(char *three_address, char *dest) {
 	unsigned length = strlen(three_address);
@@ -119,21 +132,22 @@ int is_number(char *src) {
 	return 0;
 }
 
-int dependency_check(char *var, char *statement, int write) {
+int dependency_check(char *var, char **statement, int write) {
 	// write is 1 when the given var is a destination, 0 otherwise
 	// need NULL protection, otherwise probably seg fault
-	// ***** need to check if statement[_] is even a var using is_number
-	int is_var = (statement[0] != NULL) && (!is_number(statement[0]));
-	if (is_var && (strcmp(var, statement[0]) == 0)) {
-		return 1;
-	}
-	is_var = (statement[1] != NULL) && (!is_number(statement[1]));
-	if (write && is_var && (strcmp(var, statement[1]) == 0)) {
-		return 1;
-	}
-	is_var = (statement[2] != NULL) && (!is_number(statement[2]));
-	if (write && is_var && (strcmp(var, statement[2]) == 0)) {
-		return 1;
+	if (var != NULL) {
+		int is_var = statement[0] != NULL;
+		if (is_var && (strcmp(var, statement[0]) == 0)) {
+			return 1;
+		}
+		is_var = statement[1] != NULL;
+		if (write && is_var && (strcmp(var, statement[1]) == 0)) {
+			return 1;
+		}
+		is_var = statement[2] != NULL;
+		if (write && is_var && (strcmp(var, statement[2]) == 0)) {
+			return 1;
+		}
 	}
 	return 0;
 }
@@ -144,17 +158,46 @@ int node_weight(ddg_node_t *node) {
 }
 */
 
+int get_latency(char *line) {
+	unsigned length = strlen(line);
+	for (int i=0; i<length; i++) {
+		if (line[i] == '/') {
+			return 4;
+		}
+		else if (line[i] == '*') {
+			if (line[i+1] == '*') {
+				return 8;
+			}
+			else {
+				return 4;
+			}
+		}
+		else if (line[i] == '+' || line[i] == '-') {
+			return 1;
+		}
+		else if (line[i] == '\n') {
+			return 2;
+		}
+	}
+	return 0;
+}
+
 int main(int argc, char *argv[]) {
 
 	FILE *input = fopen(argv[1], "r");
+	int latencies[32];
 	char str[80];
 	char dest[16];
 	char src1[16];
 	char src2[16];
 	int i=0;
 	char **statement_list[32];
+	char *whole_statement[32];
 	/* while loop parses vars of each line and puts them in appropiate spot in statement_list */
 	while (fgets(str, 80, input) != NULL) {
+		whole_statement[i] = (char *) malloc(strlen(str) + 1);
+		strcpy(whole_statement[i], str);
+		latencies[i] = get_latency(str);
 		statement_list[i] = (char **) malloc(sizeof(char *) * 3); //allocate space for dest, src1, src2 for this statement
 		int result = retrieve_dest(str, dest);
 		if(result == 0) {
@@ -195,6 +238,7 @@ int main(int argc, char *argv[]) {
 			}
 		}
 		else if (result == 1) {
+			statement_list[i][0] = (char *) malloc(sizeof(char) * strlen(dest) + 1); // allocate space for dest including null char
 			printf("statement %d is if-statement overhead\n", i);
 			strcpy(statement_list[i][0], dest);
 			statement_list[i][1] = NULL;
@@ -213,38 +257,101 @@ int main(int argc, char *argv[]) {
 		i++;
 	}
 	
-	/* building ddg */
-	ddg_t dd_graph;
+	/* building ddgs */
+	ddg_t blocks[8];
+	unsigned block_index = 0;;
+	blocks[0].start = 0;
 	int if_begin = 0;
 	int else_begin = 0;
 	int else_end = 0;
+	unsigned edge_index = 0;
+	unsigned node_index = 0;
+	// find endpoint of first basic block
+	for (int k=0; k<i; k++) {
+		char *dest_curr = statement_list[k][0];
+		char *src1_curr = statement_list[k][1];
+		char *src2_curr = statement_list[k][2];
+		if (dest_curr == NULL && src1_curr != NULL && src2_curr == NULL) {
+			blocks[0].end = k-1;
+		}
+	}
+	// loop through to build edges and nodes
 	for (int j=0; j<i; j++) {
-		ddg_node_t *curr = malloc(sizeof(ddg_node_t));
-		curr->statement = j;
-		curr->weight = 0;
+		//ddg_node_t *curr = malloc(sizeof(ddg_node_t));
+		blocks[block_index].node_list[node_index].statement = j;
+		blocks[block_index].node_list[node_index].weight = 1;
 		char *dest_curr = statement_list[j][0];
 		char *src1_curr = statement_list[j][1];
 		char *src2_curr = statement_list[j][2];
-		if (dest_curr == NULL && src1_curr != NULL && src2_curr == NULL) {
-			if_begin = j+1;
-		}
-		else if (src1_curr == NULL && src2_curr == NULL) { //either else begin or else end
-			if (strcmp(dest_curr, "end") == 0) {
-				else_end = j;
+		// if current block is done
+		if (j == blocks[block_index].end+1) {
+			blocks[block_index].num_edges = edge_index;
+			print_ddg(blocks[block_index]);
+			block_index++;
+			// find starting point of next block
+			for (int k=j+1; k<i; k++) {
+				if (statement_list[k][1] == NULL && statement_list[k][2] == NULL) { //either else begin or else end
+					if (strcmp(statement_list[k][0], "end") == 0) {
+						else_end = k;
+						break;
+					}
+				}
 			}
-			else if (strcmp(dest_curr, "else") == 0) {
-				else_begin = j;
-			}
-		}
-		else {
+			blocks[block_index].start = else_end+1;
+			printf("next block starts at %d\n", blocks[block_index].start);
+			// jump j to new starting point
+			j = else_end+1;
+			// find new blocks end point
+			blocks[block_index]. end = i-1; //end of program if no more control flow changes
 			for (int k=j; k<i; k++) {
-				// add NULL and variable checking for dest_curr, src1_curr, src2_curr
-				// or do it in dependency check function
-				if (dependency_check(dest_curr, statement_list[k], 1) || 
-				    dependency_check(
+				if (statement_list[k][0] == NULL && statement_list[k][1] != NULL && statement_list[k][2] == NULL) { //next if start
+					blocks[block_index].end = k - 1;
+				}
+			}
+			dest_curr = statement_list[j][0];
+			src1_curr = statement_list[j][1];
+			src2_curr = statement_list[j][2];
+			node_index = 0;
+			edge_index = 0;
+			blocks[block_index].node_list[node_index].statement = j;
+			blocks[block_index].node_list[node_index].weight = 1;
+		}
+		for (int k=j+1; k<=blocks[block_index].end; k++) {
+			int deps = dependency_check(dest_curr, statement_list[k], 1);
+			deps += dependency_check(src1_curr, statement_list[k], 0);
+			deps += dependency_check(src2_curr, statement_list[k], 0);
+			if (deps > 0) {
+				blocks[block_index].edge_list[edge_index].src = j; 
+				blocks[block_index].edge_list[edge_index].dest = k;
+				blocks[block_index].edge_list[edge_index].weight = latencies[j];
+				printf("edge between statement %d and statement %d with weight %d\n", j, k, latencies[j]);
+				edge_index++;
 			}
 		}
+		node_index++;
+	} //outermost for
+	blocks[block_index].num_edges = edge_index;
+	print_ddg(blocks[block_index]);
+	
+	// employ algorithms on each block
+	for (int j=0; j<block_index+1; j++) {
+		ddg_t curr = blocks[j];
+		int est[64]; //earliest starting time
+		//for each node
+		for (int k=0; k<curr.end-curr.start+1; k++) {
+			ddg_node_t curr_node = curr.node_list[k];
+			// for each edge
+			for (int l=0; l<curr.num_edges; l++) {
+				edge_t curr_edge = curr.edge_list[l];
+				
+			}
+		}
+
 	}
+
+	
+
+	
 	
 	/* freeing memory used by statement_list */
 	for (int j=i-1; j>=0; j--) {
