@@ -160,23 +160,28 @@ int node_weight(ddg_node_t *node) {
 
 int get_latency(char *line) {
 	unsigned length = strlen(line);
+	int lat = 0;
 	for (int i=0; i<length; i++) {
 		if (line[i] == '/') {
-			return 4;
+			lat += 4;
 		}
 		else if (line[i] == '*') {
 			if (line[i+1] == '*') {
-				return 8;
+				lat += 8;
+				i++; //skip '*' on next run through to not double count
 			}
 			else {
-				return 4;
+				lat += 4;
 			}
 		}
 		else if (line[i] == '+' || line[i] == '-') {
-			return 1;
+			lat += 1;
+		}
+		else if (line[i] == '=') {
+			lat += 2;
 		}
 		else if (line[i] == '\n') {
-			return 2;
+			return lat;
 		}
 	}
 	return 0;
@@ -185,6 +190,7 @@ int get_latency(char *line) {
 int main(int argc, char *argv[]) {
 
 	FILE *input = fopen(argv[1], "r");
+	FILE *output = fopen(argv[2], "w");
 	int latencies[32];
 	char str[80];
 	char dest[16];
@@ -316,6 +322,7 @@ int main(int argc, char *argv[]) {
 			blocks[block_index].node_list[node_index].statement = j;
 			blocks[block_index].node_list[node_index].weight = 1;
 		}
+		int edge_made = 0;
 		for (int k=j+1; k<=blocks[block_index].end; k++) {
 			int deps = dependency_check(dest_curr, statement_list[k], 1);
 			deps += dependency_check(src1_curr, statement_list[k], 0);
@@ -325,8 +332,17 @@ int main(int argc, char *argv[]) {
 				blocks[block_index].edge_list[edge_index].dest = k;
 				blocks[block_index].edge_list[edge_index].weight = latencies[j];
 				printf("edge between statement %d and statement %d with weight %d\n", j, k, latencies[j]);
+				edge_made = 1;
 				edge_index++;
 			}
+		}
+		if (!edge_made) {
+				blocks[block_index].edge_list[edge_index].src = j;
+				blocks[block_index].edge_list[edge_index].dest = -1; //-1 signifies END
+				blocks[block_index].edge_list[edge_index].weight = latencies[j];
+				printf("edge between statement %d and END with weight %d\n", j, latencies[j]);
+				edge_index++;
+
 		}
 		node_index++;
 	} //outermost for
@@ -336,17 +352,170 @@ int main(int argc, char *argv[]) {
 	// employ algorithms on each block
 	for (int j=0; j<block_index+1; j++) {
 		ddg_t curr = blocks[j];
-		int est[64]; //earliest starting time
+		int est[32]; //earliest starting time
 		//for each node
-		for (int k=0; k<curr.end-curr.start+1; k++) {
+		int k; for (k=0; k<curr.end-curr.start+1; k++) {
 			ddg_node_t curr_node = curr.node_list[k];
+			int est_curr = 0;
+			est[k] = 0;
 			// for each edge
 			for (int l=0; l<curr.num_edges; l++) {
 				edge_t curr_edge = curr.edge_list[l];
-				
+				if (curr_edge.dest == curr_node.statement) {
+					int m;
+					for (m=0; m<k; m++) {
+						if (curr.node_list[m].statement == curr_edge.src) {
+							break;
+						}
+					}
+					int new_est = est[m] + curr.node_list[m].weight + curr_edge.weight;
+					printf ("edge comprises est %d, node weight %d, edge weight %d\n", est[m], curr.node_list[m].weight, curr_edge.weight);
+					if (new_est > est[k]) {
+						printf("max est found for node %d based on statement %d\n", curr_node.statement, curr.node_list[m].statement);
+						est[k] = new_est;
+					}
+				}
+			}
+			printf("statement %d has EST %d\n", curr_node.statement, est[k]);
+		}
+		// calculate end
+		est[k] = 0;
+		for (int l=0; l<curr.num_edges; l++) {
+			edge_t curr_edge = curr.edge_list[l];
+			if (curr_edge.dest == -1) { // -1 is end
+				int m;
+				for (m=0; m<k; m++) {
+					if (curr.node_list[m].statement == curr_edge.src) {
+						break;
+					}
+				}
+				int new_est = est[m] + curr.node_list[m].weight + curr_edge.weight;
+				printf ("edge comprises est %d, node weight %d, edge weight %d\n", est[m], curr.node_list[m].weight, curr_edge.weight);
+				if (new_est > est[k]) {
+					printf("max est found for end based on statement %d\n", curr.node_list[m].statement);
+					est[k] = new_est;
+				}
 			}
 		}
-
+		printf("END has EST %d\n", est[k]);
+		int end_est = est[k];
+		int lst[32]; //latest starting time
+		for (int z=0; z<32; z++) {
+			lst[z] = end_est;
+		}
+		for (int l=0; l<curr.num_edges; l++) { //first set compute LST for nodes that have edges to END
+			edge_t curr_edge = curr.edge_list[l];
+			if (curr_edge.dest == -1) {
+				int m;
+				for (m=0; m<k; m++) {
+					if (curr.node_list[m].statement == curr_edge.src) {
+						break;
+					}
+				}
+				int new_lst = end_est - curr_edge.weight - curr.node_list[m].weight;
+				printf("min lst (%d) found for statement %d based on END\n", new_lst, curr.node_list[m].statement);
+				lst[m] = new_lst;
+				//if (new_lst < lst[m]) {
+				//}
+			}
+		}
+		int num_nodes = k;
+		for (; k >= 0; k--) { //compute rest of nodes' LST
+			ddg_node_t curr_node = curr.node_list[k]; //should be END
+			for (int l=curr.num_edges-1; l>=0; l--) {
+				edge_t curr_edge = curr.edge_list[l];
+				if (curr_edge.src == curr_node.statement && curr_edge.dest != -1) {
+					int m;
+					for (m=0; m<num_nodes; m++) {
+						if (curr.node_list[m].statement == curr_edge.dest) {
+							break;
+						}
+					}
+					int new_lst = lst[m] - curr_edge.weight - curr.node_list[m].weight;
+					printf("edge comprises lst %d, node weight %d, edge weight %d\n", lst[m], curr.node_list[m].weight, curr_edge.weight);
+					if (new_lst < lst[k]) {
+						printf("min lst (%d) found for node %d based on statement %d\n", new_lst, curr_node.statement, curr.node_list[m].statement);
+						lst[k] = new_lst;
+					}
+				}
+			}
+		}
+		
+		for (int l=0; l<num_nodes; l++) {
+			printf("statement %d has rank %d\n", curr.node_list[l].statement, lst[l] - est[l]);
+		}
+		// build priority list, each int is number of statement next in line, organized by rank
+		int priority[32];
+		printf("priority list: ");
+		int n;
+		int priority_index = 0;
+		for (int m=0; m<end_est; m++) {
+			for (n=0; n<num_nodes; n++) {
+				if (lst[n] - est[n] == m) { //earliest ranks first
+					priority[priority_index] = curr.node_list[n].statement;
+					printf("%d, ", priority[priority_index]);
+					priority_index++;
+				}
+			}
+		}
+		printf("\n");
+		// build array of pred_count
+		int pred_count[32];
+		for (int l=0; l<32; l++) {
+			pred_count[l] = 0; //initialize to zero
+		}
+		for (int l=0; l<curr.num_edges; l++) {
+			edge_t curr_edge = curr.edge_list[l];
+			if (curr_edge.dest != -1) {
+				printf("pred_count using edge from %d to %d\n", curr_edge.src, curr_edge.dest);
+				pred_count[curr_edge.dest] += 1; //add 1 for each edge to the node
+			}
+		}
+		printf("pred_count: ");
+		for (int l=0; l<num_nodes; l++) {
+			printf("%d, ", pred_count[priority[l]]);
+		}
+		printf("\n");
+		int ready_instructions = 0;
+		for (int l=0; l<num_nodes; l++) {
+			if (pred_count[priority[l]] == 0) {
+				printf("%d starts ready\n", curr.node_list[l].statement);
+				ready_instructions++;
+			}
+		}
+		//have pred_count for each instruction
+		//instructions are ready when pred_count is zero, lower rank goes first
+		//reduce pred_count when a predecessor is scheduled (based on edges)
+		while (ready_instructions > 0) {
+			for (int l=0; l<num_nodes; l++) {
+				if (pred_count[priority[l]] == 0) {
+					fprintf(output, "%s", whole_statement[priority[l]]);
+					printf("scheduled %d \n", priority[l]);
+					pred_count[priority[l]] = -1; // pred_count goes to negative one when output
+					ready_instructions--;
+					for (int m=0; m<curr.num_edges; m++) {
+						edge_t curr_edge = curr.edge_list[m];
+						if (curr_edge.src == priority[l] && curr_edge.dest != -1) {
+							printf("%d scheduled, decrement %d's pred_count\n", priority[l], curr_edge.dest);
+							pred_count[curr_edge.dest] -= 1;
+						}
+					}
+					break; //break loop
+				}
+			}
+			ready_instructions = 0;
+			for (int l=0; l<num_nodes; l++) {
+				if (pred_count[curr.node_list[l].statement] == 0) {
+					printf("%d is now ready\n", curr.node_list[l].statement);
+					ready_instructions++;
+				}
+			}
+		} 
+		if (j < block_index && curr.end < blocks[j+1].start - 1) { //if gap between basic blocks (if statement)
+			for (int l=curr.end+1; l<blocks[j+1].start; l++) {
+				fprintf(output, "%s", whole_statement[l]);
+			}
+		}
 	}
 
 	
@@ -363,5 +532,5 @@ int main(int argc, char *argv[]) {
 		free(statement_list[j]);
 	}
 	fclose(input);
-	//FILE *output = fopen(argv[2], "w");
+	fclose(output);
 }
