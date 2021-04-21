@@ -9,11 +9,11 @@ main(){
 
 	S0:	tmp0 = 3*a
 	S1:	tmp1 = 4/2
-	S2:	x = tmp0+tmp1
-	S3:	tmp2 = 2**2
-	S4:	x = 4/tmp2
-	S5:	z = 3*f
-	S6:	d = 4
+	S2:	tmp2 = 2**2
+	S3:	z = 3*f
+	S4:	d = 4
+	S5:	x = tmp0+tmp1
+	S6:	x = 4/tmp2
 	S7:	If(d){
 	S8:		d = 5
 	S9:		e = d
@@ -21,12 +21,12 @@ main(){
 	S11:		e = 0
 	S12:	}
 	S13:	tmp4 = 3*2
-	S14:	tmp5 = tmp4+1
-	S15:	y = tmp5-3
-	S16:	a = 18+y
-	S17:	tmp3 = 1*2
-	S18:	b = 3+tmp3
-	S19:	e = d
+	S14:	tmp3 = 1*2
+	S15:	e = d
+	S16:	tmp5 = tmp4+1
+	S17:	b = 3+tmp3
+	S18:	y = tmp5-3
+	S19:	a = 18+y
 
 	println("a=%d\n");
 	println("x=%d\n");

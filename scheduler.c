@@ -585,6 +585,12 @@ int main(int argc, char *argv[]) {
 		//have pred_count for each instruction
 		//instructions are ready when pred_count is zero, lower rank goes first
 		//reduce pred_count when a predecessor is scheduled (based on edges)
+		int used[4];
+		used[0] = -1;
+		used[1] = -1;
+		used[2] = -1;
+		used[3] = -1;
+		int used_index = 0;
 		while (ready_instructions > 0) {
 			for (int l=0; l<num_nodes; l++) {
 				if (pred_count[priority[l]] == 0) {
@@ -593,13 +599,49 @@ int main(int argc, char *argv[]) {
 					printf("scheduled %d \n", priority[l]);
 					pred_count[priority[l]] = -1; // pred_count goes to negative one when output
 					ready_instructions--;
+					int n=0;
+					while (n<latencies[priority[l]] && ready_instructions > 0) {
+						for (int p=0; p<num_nodes; p++) {
+							if (pred_count[priority[p]] == 0 && used_index <= 3) {
+								fprintf(output, "\tS%d:\t%s", statement_index, whole_statement[priority[p]]);
+								used[used_index] = priority[p];
+								used_index++;
+								statement_index++;
+								printf("scheduled %d \n", priority[p]);
+								pred_count[priority[p]] = -1; // pred_count goes to negative one when output
+								ready_instructions--;
+							}
+						}
+						n++;
+					}
 					for (int m=0; m<curr.num_edges; m++) {
 						edge_t curr_edge = curr.edge_list[m];
 						if (curr_edge.src == priority[l] && curr_edge.dest != -1) {
 							printf("%d scheduled, decrement %d's pred_count\n", priority[l], curr_edge.dest);
 							pred_count[curr_edge.dest] -= 1;
 						}
+						else if (curr_edge.src == used[0] && curr_edge.dest != -1) {
+							printf("%d scheduled, decrement %d's pred_count\n", used[0], curr_edge.dest);
+							pred_count[curr_edge.dest] -= 1;
+						}
+						else if (curr_edge.src == used[1] && curr_edge.dest != -1) {
+							printf("%d scheduled, decrement %d's pred_count\n", used[1], curr_edge.dest);
+							pred_count[curr_edge.dest] -= 1;
+						}
+						else if (curr_edge.src == used[2] && curr_edge.dest != -1) {
+							printf("%d scheduled, decrement %d's pred_count\n", used[2], curr_edge.dest);
+							pred_count[curr_edge.dest] -= 1;
+						}
+						else if (curr_edge.src == used[3] && curr_edge.dest != -1) {
+							printf("%d scheduled, decrement %d's pred_count\n", used[3], curr_edge.dest);
+							pred_count[curr_edge.dest] -= 1;
+						}
 					}
+					used_index = 0;
+					used[0] = -1;
+					used[1] = -1;
+					used[2] = -1;
+					used[3] = -1;
 					break; //break loop
 				}
 			}

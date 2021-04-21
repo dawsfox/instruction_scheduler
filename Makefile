@@ -1,6 +1,9 @@
 infix: infix.tab.o lex.yy.o  
 	gcc -g -o infix lex.yy.o infix.tab.o
 
+scheduler: scheduler.c
+	gcc -g -o scheduler scheduler.c
+
 lex.yy.o: infix.l
 	flex infix.l; gcc -c -g lex.yy.c
 
