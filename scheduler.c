@@ -22,6 +22,14 @@ typedef struct ddg_s {
 	edge_t edge_list[64];
 } ddg_t; 
 
+typedef struct meta_var_s {
+	char *var;
+	char needs_input;
+	char is_tmp;
+	char is_assigned;
+	char is_if;
+} meta_var_t;
+
 void print_ddg(ddg_t curr) {
 	printf("ddg from %d to %d\n", curr.start, curr.end);
 	printf("has nodes:\n");
@@ -32,6 +40,13 @@ void print_ddg(ddg_t curr) {
 	for (int i=0; i < curr.num_edges; i++) {
 		printf("%d->%d, ", curr.edge_list[i].src, curr.edge_list[i].dest);
 	}
+}
+
+int is_tmp(char *var) {
+	if (var[0] == 't' && var[1] == 'm' && var[2] == 'p') {
+		return 1;
+	}
+	return 0;
 }
 
 int retrieve_dest(char *three_address, char *dest) {
@@ -348,13 +363,97 @@ int main(int argc, char *argv[]) {
 	} //outermost for
 	blocks[block_index].num_edges = edge_index;
 	print_ddg(blocks[block_index]);
+
+	// build structs to help discern variables to be declared, input, output in C code output
+	meta_var_t var_list[32];
+	int var_index = 0;
+	for (int j=0; j<i; j++) {
+		if (statement_list[j][1] != NULL) {
+			int k;
+			for (k=0; k<var_index; k++) {
+				if(var_list[k].var != NULL && strcmp(statement_list[j][1], var_list[k].var) == 0) { //already in list
+					if (var_list[k].is_assigned != 1) { //used as src without assignment
+						var_list[k].needs_input = 1;
+					}
+					break;
+				}
+			}
+			if (k == var_index) { // no match found
+				var_list[var_index].var = malloc(strlen(statement_list[j][1]) + 1);
+				strcpy(var_list[var_index].var, statement_list[j][1]); //add to list
+				if (is_tmp(var_list[var_index].var)) {
+					var_list[var_index].is_tmp = 1;
+				}
+				var_list[var_index].needs_input = 1; //src first, so needs input
+				var_index++;
+			}
+		} 
+		if (statement_list[j][2] != NULL) {
+			int k;
+			for (k=0; k<var_index; k++) {
+				if(var_list[k].var != NULL && strcmp(statement_list[j][2], var_list[k].var) == 0) { //already in list
+					if (var_list[k].is_assigned != 1) { //used as src without assignment
+						var_list[k].needs_input = 1;
+					}
+					break;
+				}
+			}
+			if (k == var_index) { // no match found
+				var_list[var_index].var = malloc(strlen(statement_list[j][2]) + 1);
+				strcpy(var_list[var_index].var, statement_list[j][2]); //add to list
+				if (is_tmp(var_list[var_index].var)) {
+					var_list[var_index].is_tmp = 1;
+				}
+				var_list[var_index].needs_input = 1; //src first, so needs input
+				var_index++;
+			}
+		} 
+		if (statement_list[j][0] != NULL) {
+			int k;
+			for (k=0; k<var_index; k++) { //see if its already been added
+				if(var_list[k].var != NULL && strcmp(statement_list[j][0], var_list[k].var) == 0) { //already in var_list
+					break;
+				}
+			}
+			if (k == var_index && strcmp(statement_list[j][0],"else") != 0 && strcmp(statement_list[j][0],"end") != 0) { // no match found
+				var_list[var_index].var = malloc(strlen(statement_list[j][0]) + 1);
+				strcpy(var_list[var_index].var, statement_list[j][0]); //add to list
+				if (is_tmp(var_list[var_index].var)) {
+					var_list[var_index].is_tmp = 1;
+				}
+				var_list[var_index].is_assigned = 1;
+				var_index++;
+			}
+		}
+	}
+
+	fprintf(output, "main(){\n");
+	fprintf(output, "\tint ");
+	for (int j=0; j<var_index; j++) {
+		if (j != var_index - 1) {
+			fprintf(output, "%s, ", var_list[j].var);
+		}
+		else {
+			fprintf(output, "%s;\n\n", var_list[j].var);
+		}
+	}
+
+	for (int j=0; j<var_index; j++) {
+		if (var_list[j].needs_input == 1) {
+			fprintf(output, "\tprintf(\"%s=\");\n", var_list[j].var);
+			fprintf(output, "\tscanf(\"%%d\",&%s);\n\n", var_list[j].var);
+		}
+	}
 	
+	int statement_index = 0; //for statement labeling
+
 	// employ algorithms on each block
 	for (int j=0; j<block_index+1; j++) {
 		ddg_t curr = blocks[j];
 		int est[32]; //earliest starting time
 		//for each node
-		int k; for (k=0; k<curr.end-curr.start+1; k++) {
+		int k;
+		for (k=0; k<curr.end-curr.start+1; k++) {
 			ddg_node_t curr_node = curr.node_list[k];
 			int est_curr = 0;
 			est[k] = 0;
@@ -489,7 +588,8 @@ int main(int argc, char *argv[]) {
 		while (ready_instructions > 0) {
 			for (int l=0; l<num_nodes; l++) {
 				if (pred_count[priority[l]] == 0) {
-					fprintf(output, "%s", whole_statement[priority[l]]);
+					fprintf(output, "\tS%d:\t%s", statement_index, whole_statement[priority[l]]);
+					statement_index++;
 					printf("scheduled %d \n", priority[l]);
 					pred_count[priority[l]] = -1; // pred_count goes to negative one when output
 					ready_instructions--;
@@ -513,13 +613,20 @@ int main(int argc, char *argv[]) {
 		} 
 		if (j < block_index && curr.end < blocks[j+1].start - 1) { //if gap between basic blocks (if statement)
 			for (int l=curr.end+1; l<blocks[j+1].start; l++) {
-				fprintf(output, "%s", whole_statement[l]);
+				fprintf(output, "\tS%d:\t%s", statement_index, whole_statement[l]);
+				statement_index++;
 			}
 		}
 	}
 
+	fprintf(output, "\n");
+	for (int j=0; j<var_index; j++) {
+		if (var_list[j].is_tmp != 1) {
+			fprintf(output, "\tprintln(\"%s=%%d\\n\");\n", var_list[j].var);
+		}
+	}
+	fprintf(output, "}");
 	
-
 	
 	
 	/* freeing memory used by statement_list */
